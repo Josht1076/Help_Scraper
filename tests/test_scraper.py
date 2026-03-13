@@ -19,27 +19,12 @@ class ScraperUnitTests(unittest.TestCase):
             </body>
         </html>
         """
-        page = scraper.parse_page(html_doc, "https://example.com/start", toc_keywords=["toc"])
+        page = scraper.parse_page(html_doc, "https://example.com/start")
         self.assertEqual(page.title, "Docs Title")
         self.assertIn("# Heading", page.markdown)
         self.assertIn("[next page](/next)", page.markdown)
         self.assertIn("```", page.markdown)
         self.assertIn("https://example.com/next", page.links)
-
-    def test_parse_page_extracts_toc_links(self):
-        html_doc = """
-        <html><body>
-            <nav class='table-of-contents'>
-                <a href='/user-guide/a.html'>A</a>
-                <a href='/user-guide/b.html'>B</a>
-            </nav>
-            <a href='/other.html'>Other</a>
-        </body></html>
-        """
-        page = scraper.parse_page(html_doc, "https://www.advancedinstaller.com/user-guide/", toc_keywords=["table-of-contents"])
-        self.assertIn("https://www.advancedinstaller.com/user-guide/a.html", page.toc_links)
-        self.assertIn("https://www.advancedinstaller.com/user-guide/b.html", page.toc_links)
-        self.assertNotIn("https://www.advancedinstaller.com/other.html", page.toc_links)
 
     def test_should_visit_respects_domain_and_prefix(self):
         self.assertTrue(

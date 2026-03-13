@@ -15,7 +15,7 @@ from pathlib import Path
 from urllib.parse import urldefrag, urljoin, urlparse
 from urllib.request import Request, urlopen
 
-USER_AGENT = "HelpScraper/2.1 (+https://local.agent)"
+USER_AGENT = "HelpScraper/2.0 (+https://local.agent)"
 BLOCK_TAGS = {"script", "style", "noscript", "svg"}
 
 
@@ -24,13 +24,12 @@ class ParsedPage:
     title: str
     markdown: str
     links: list[str]
-    toc_links: list[str]
 
 
 class HTMLToMarkdownParser(HTMLParser):
     """Lightweight HTML -> Markdown parser for docs-like pages."""
 
-    def __init__(self, toc_keywords: list[str] | None = None):
+    def __init__(self):
         super().__init__(convert_charrefs=True)
         self._buf: list[str] = []
         self._title_parts: list[str] = []
@@ -42,10 +41,6 @@ class HTMLToMarkdownParser(HTMLParser):
         self._code_fence_open = False
         self.links: list[str] = []
 
-        self._toc_keywords = [k.lower() for k in (toc_keywords or ["toc", "table-of-contents", "contents"])]
-        self._toc_depth = 0
-        self.toc_links: list[str] = []
-
     def handle_starttag(self, tag, attrs):
         attrs_map = dict(attrs)
 
@@ -54,9 +49,6 @@ class HTMLToMarkdownParser(HTMLParser):
             return
         if self._skip_depth:
             return
-
-        if self._is_toc_container(attrs_map):
-            self._toc_depth += 1
 
         if tag == "title":
             self._in_title = True
@@ -96,8 +88,6 @@ class HTMLToMarkdownParser(HTMLParser):
             self._href_stack.append(href)
             if href:
                 self.links.append(href)
-                if self._toc_depth > 0:
-                    self.toc_links.append(href)
             self._buf.append("[")
             return
         if tag == "img":
@@ -136,9 +126,6 @@ class HTMLToMarkdownParser(HTMLParser):
             else:
                 self._buf.append("]")
 
-        if tag in {"nav", "aside", "div", "section", "ul", "ol"} and self._toc_depth > 0:
-            self._toc_depth -= 1
-
     def handle_data(self, data):
         if self._skip_depth:
             return
@@ -176,27 +163,16 @@ class HTMLToMarkdownParser(HTMLParser):
         else:
             self._buf.append("\n" * n)
 
-    def _is_toc_container(self, attrs_map: dict[str, str]) -> bool:
-        tokens = " ".join([attrs_map.get("id", ""), attrs_map.get("class", ""), attrs_map.get("aria-label", "")]).lower()
-        return any(keyword in tokens for keyword in self._toc_keywords)
-
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Turn webpages into markdown files for AI-agent references.")
     p.add_argument("--url", action="append", default=[], help="URL to scrape (repeatable)")
     p.add_argument("--url-file", help="File with one URL per line")
     p.add_argument("--output-dir", default="output", help="Directory for markdown output")
-    p.add_argument("--max-pages", type=int, default=400, help="Max pages to scrape")
+    p.add_argument("--max-pages", type=int, default=200, help="Max pages to scrape")
     p.add_argument("--delay-seconds", type=float, default=0.3, help="Delay between requests")
     p.add_argument("--timeout", type=float, default=20.0, help="HTTP timeout in seconds")
-    p.add_argument("--crawl", action="store_true", help="Follow all discovered links within allowed scope")
-    p.add_argument("--seed-from-toc", action="store_true", help="Seed queue from TOC links on start page(s)")
-    p.add_argument(
-        "--toc-keyword",
-        action="append",
-        default=["toc", "table-of-contents", "contents"],
-        help="Keyword used to detect TOC container id/class/aria-label (repeatable).",
-    )
+    p.add_argument("--crawl", action="store_true", help="Follow links within allowed domains")
     p.add_argument(
         "--allowed-domain",
         action="append",
@@ -250,19 +226,12 @@ def fetch_html(url: str, timeout: float) -> str:
         return resp.read().decode(enc, errors="replace")
 
 
-def parse_page(html_doc: str, base_url: str, toc_keywords: list[str]) -> ParsedPage:
-    parser = HTMLToMarkdownParser(toc_keywords=toc_keywords)
+def parse_page(html_doc: str, base_url: str) -> ParsedPage:
+    parser = HTMLToMarkdownParser()
     parser.feed(html_doc)
     links = [normalize_url(urljoin(base_url, href)) for href in parser.links if href]
     links = [u for u in links if urlparse(u).scheme in {"http", "https"}]
-    toc_links = [normalize_url(urljoin(base_url, href)) for href in parser.toc_links if href]
-    toc_links = [u for u in toc_links if urlparse(u).scheme in {"http", "https"}]
-    return ParsedPage(
-        title=parser.title(),
-        markdown=parser.markdown(),
-        links=list(dict.fromkeys(links)),
-        toc_links=list(dict.fromkeys(toc_links)),
-    )
+    return ParsedPage(title=parser.title(), markdown=parser.markdown(), links=list(dict.fromkeys(links)))
 
 
 def should_visit(url: str, allowed_domains: set[str], prefixes: list[str]) -> bool:
@@ -314,16 +283,11 @@ def scrape(args: argparse.Namespace) -> int:
             print(f"[error] {url}: {exc}")
             continue
 
-        page = parse_page(html_doc, url, toc_keywords=args.toc_keyword)
+        page = parse_page(html_doc, url)
         output = out_dir / f"{slugify_url(url)}.md"
         output.write_text(render_markdown(url, page.title, page.markdown), encoding="utf-8")
         print(f"[saved] {output}")
         count += 1
-
-        if args.seed_from_toc and url in start_urls:
-            for link in page.toc_links:
-                if link not in seen:
-                    queue.append(link)
 
         if args.crawl:
             for link in page.links:

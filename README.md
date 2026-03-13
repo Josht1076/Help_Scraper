@@ -2,16 +2,21 @@
 
 CLI tool to turn documentation websites into Markdown files you can use as reference context for AI agents.
 
-## Recommended for Advanced Installer User Guide
+## What this version improves
 
-The user guide root page contains a table of contents with links to the full guide. Use TOC seeding to discover pages directly from that table of contents.
+- Better HTML → Markdown conversion (headings, lists, links, code blocks, images)
+- Real crawling mode (`--crawl`) for scraping a full docs section
+- Domain and URL-prefix guards so crawls stay scoped
+- Frontmatter metadata for every generated Markdown file
+
+## Quick start (Advanced Installer User Guide)
 
 Target docs: <https://www.advancedinstaller.com/user-guide/>
 
 ```bash
 python scraper.py \
   --url "https://www.advancedinstaller.com/user-guide/" \
-  --seed-from-toc \
+  --crawl \
   --allowed-domain "www.advancedinstaller.com" \
   --url-prefix "https://www.advancedinstaller.com/user-guide/" \
   --max-pages 800 \
@@ -19,7 +24,11 @@ python scraper.py \
   --output-dir output/advancedinstaller-user-guide
 ```
 
-If you also want recursive traversal beyond TOC links, add `--crawl`.
+This configuration:
+- starts from the user guide root page,
+- follows links found in docs pages,
+- only keeps pages inside `/user-guide/`,
+- writes one `.md` file per URL.
 
 ## General usage
 
@@ -29,9 +38,7 @@ python scraper.py --url <page-url> [--url <page-url-2> ...] [options]
 
 Options:
 - `--url-file urls.txt`: read URLs from a file (one per line)
-- `--seed-from-toc`: discover URLs from TOC containers on start page(s)
-- `--toc-keyword keyword`: TOC detection keyword for id/class/aria-label (repeatable)
-- `--crawl`: follow all discovered links
+- `--crawl`: follow discovered links
 - `--allowed-domain <domain>`: only visit this domain (repeatable)
 - `--url-prefix <prefix>`: only visit URLs with this prefix (repeatable)
 - `--max-pages <n>`: stop after N successful pages
